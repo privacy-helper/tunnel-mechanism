@@ -1,0 +1,87 @@
+(* Symmetric key encryption *)
+
+type key.
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m,k),k) = m.
+
+(* Asymmetric key encryption *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey): bitstring.
+
+reduc forall m: bitstring, sk: skey; adec(aenc(m,pk(sk)),sk) = m.
+
+
+(* Digital signatures *)
+
+type sskey.
+type spkey.
+
+fun spk(sskey): spkey.
+fun sign(bitstring, sskey): bitstring.
+
+reduc forall m: bitstring, ssk: sskey; getmess(sign(m,ssk)) = m.
+reduc forall m: bitstring, ssk: sskey; checksign(sign(m,ssk),spk(ssk)) = m.
+
+type nonce.
+type ip.
+type id.
+fun sskey_to_skey(sskey): skey [data,typeConverter].
+fun spkey_to_pkey(spkey): pkey [data,typeConverter].
+fun skey_to_sskey(skey): sskey [data,typeConverter].
+fun pkey_to_spkey(pkey): spkey [data,typeConverter].
+fun nonce_ip(nonce,ip): bitstring [data].
+fun nonce_ip_id(nonce,ip,id): bitstring [data].
+fun h(bitstring):bitstring.
+
+free c:channel.
+
+free vidI:id [private].
+free ipI:ip [private].
+
+query attacker(vidI).
+query attacker(ipI).
+
+event acceptsEntity(ip).
+event acceptsServer(ip,id).
+event termEntity(ip,id).
+event termServer(ip).
+
+query x:ip,y:id; event(termEntity(x,y))==>event(acceptsServer(x,y)).
+query x:ip; inj-event(termServer(x))==>inj-event(acceptsEntity(x)).
+
+
+let entityI(ipI:ip,pkI:pkey,skI:skey,pkS:spkey,ipS:ip) =
+  new Na:nonce;
+  let m1 = aenc((ipI, pkI, vidI, Na), spkey_to_pkey(pkS)) in
+	out(c,m1);
+  in(c,(m:bitstring,Nx:nonce));
+	let hash_data = checksign(m,pkS) in
+  if hash_data = h(nonce_ip(Na,ipS)) then let m3 = sign(h(nonce_ip_id(Nx, ipI, vidI)), skey_to_sskey(skI)) in
+  if hash_data = h(nonce_ip(Na,ipS)) then event acceptsEntity(ipS);
+	if hash_data = h(nonce_ip(Na,ipS)) then out(c,m3);
+  if hash_data = h(nonce_ip(Na,ipS)) then event termEntity(ipI,vidI).
+
+
+let serverT(pkS:spkey,skS:sskey, ipS:ip) =
+	in(c,m:bitstring);
+  new Nb:nonce;
+  let (ipx: ip, pkx: pkey, vidx: id, Nx: nonce) = adec(m, sskey_to_skey(skS)) in
+  let m2 = sign(h(nonce_ip(Nx, ipS)), skS) in
+  event acceptsServer(ipx,vidx);
+	out(c,(m2,Nb));
+	in(c,mx:bitstring);
+  let hash_data = checksign(mx,pkey_to_spkey(pkx)) in
+  if hash_data = h(nonce_ip_id(Nb,ipx,vidx)) then event termServer(ipS);
+	0.
+
+process
+  new ipS:ip;
+	new skI:skey;
+	new skS:sskey;
+	let pkI = pk(skI) in out(c,pkI);
+	let pkS = spk(skS) in out(c,pkS);
+	( (!entityI(ipI,pkI,skI,pkS,ipS)) | (!serverT(pkS,skS,ipS)) )

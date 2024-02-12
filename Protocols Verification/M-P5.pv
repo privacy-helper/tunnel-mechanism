@@ -1,0 +1,83 @@
+(* Symmetric key encryption *)
+
+type key.
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m,k),k) = m.
+
+(* Asymmetric key encryption *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey): bitstring.
+
+reduc forall m: bitstring, sk: skey; adec(aenc(m,pk(sk)),sk) = m.
+
+
+(* Digital signatures *)
+
+type sskey.
+type spkey.
+
+fun spk(sskey): spkey.
+fun sign(bitstring, sskey): bitstring.
+
+reduc forall m: bitstring, ssk: sskey; getmess(sign(m,ssk)) = m.
+reduc forall m: bitstring, ssk: sskey; checksign(sign(m,ssk),spk(ssk)) = m.
+
+type id.
+type tid.
+fun sskey_to_skey(sskey): skey [data,typeConverter].
+fun spkey_to_pkey(spkey): pkey [data,typeConverter].
+fun skey_to_sskey(skey): sskey [data,typeConverter].
+fun pkey_to_spkey(pkey): spkey [data,typeConverter].
+
+free c1:channel.
+free c2:channel.
+free c3:channel.
+
+free kPRI:key [private].
+free kI:key [private].
+free tunnelId:tid [private].
+
+query attacker(kPRI).
+query attacker(kI).
+query attacker(tunnelId).
+
+let sender(vidPRS:id,vidPRI:id,vidI:id,pkPRS:pkey,pkPRI:pkey,pkI:pkey,kPRS:key) =
+  let m1 = aenc((tunnelId,kI), pkI) in
+  let m2 = senc((m1,vidI),kPRI) in
+  let m3 = aenc((tunnelId,kPRI), pkPRI) in
+  let m4 = senc((tunnelId,m2,m3,vidPRI),kPRS) in
+	out(c1,m4).
+
+
+let prSender(pkPRS:pkey,skPRS:skey,kPRS:key) =
+	in(c1,m:bitstring);
+  let (tunnelIdx:tid,mx2:bitstring,mx3:bitstring,vidPRIx:id) = sdec(m,kPRS) in
+	out(c2,(mx2,mx3)).
+
+let prRelay(pkPRI:pkey,skPRI:skey) =
+	in(c2,(mx1:bitstring,mx2:bitstring));
+  let (tunnelIdx:tid,kPRIx:key) = adec(mx1,skPRI) in
+  let (m1:bitstring,vidIx:id) = sdec(mx2,kPRIx) in
+	out(c3,m1).
+
+let relay(pkI:pkey,skI:skey) =
+	in(c3,m:bitstring);
+  let (tunnelIdx:tid,kIx:key) = adec(m,skI) in
+	0.
+
+process
+  new vidPRS:id;
+  new vidPRI:id;
+  new vidI:id;
+  new skPRS:skey;
+  new skPRI:skey;
+	new skI:skey;
+  let pkPRS = pk(skPRS) in out(c1,pkPRS);
+  let pkPRI = pk(skPRI) in out(c2,pkPRI);
+	let pkI = pk(skI) in out(c3,pkI);
+  new kPRS:key;
+	( (!sender(vidPRS,vidPRI,vidI,pkPRS,pkPRI,pkI,kPRS)) | (!prSender(pkPRS,skPRS,kPRS)) | (!prRelay(pkPRI,skPRI)) | (!relay(pkI,skI)) )

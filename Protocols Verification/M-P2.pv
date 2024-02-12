@@ -1,0 +1,82 @@
+(* Symmetric key encryption *)
+
+type key.
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m,k),k) = m.
+
+(* Asymmetric key encryption *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey): bitstring.
+
+reduc forall m: bitstring, sk: skey; adec(aenc(m,pk(sk)),sk) = m.
+
+
+(* Digital signatures *)
+
+type sskey.
+type spkey.
+
+fun spk(sskey): spkey.
+fun sign(bitstring, sskey): bitstring.
+
+reduc forall m: bitstring, ssk: sskey; getmess(sign(m,ssk)) = m.
+reduc forall m: bitstring, ssk: sskey; checksign(sign(m,ssk),spk(ssk)) = m.
+
+type nonce.
+type ip.
+type id.
+type prSet.
+fun sskey_to_skey(sskey): skey [data,typeConverter].
+fun spkey_to_pkey(spkey): pkey [data,typeConverter].
+fun skey_to_sskey(skey): sskey [data,typeConverter].
+fun pkey_to_spkey(pkey): spkey [data,typeConverter].
+fun nonce_ip(nonce,ip): bitstring [data].
+fun hash_prSet(bitstring,prSet): bitstring [data].
+fun h(bitstring):bitstring.
+
+free c:channel.
+
+free sprS:prSet [private].
+free k:key [private].
+
+query attacker(k).
+query attacker(sprS).
+
+event acceptsServer(key).
+event termEntity(key).
+
+query x:key; event(termEntity(x))==>event(acceptsServer(x)).
+
+
+let entityI(vidI:id,pkS:spkey,ipS:ip) =
+  new Na:nonce;
+  (* new k:key; *)
+  let m1 = aenc((Na, k), spkey_to_pkey(pkS)) in
+	out(c,(Na,m1));
+  in(c,m:bitstring);
+	let (mx:bitstring,=sprS) = sdec(m,k) in
+  let hash_data = checksign(mx,pkS) in
+  if hash_data = h(nonce_ip(Na,ipS)) then event termEntity(k).
+
+
+let serverT(pkS:spkey,skS:sskey,ipS:ip) =
+	in(c,(Nx:nonce,m:bitstring));
+  let (=Nx,kx:key) = adec(m, sskey_to_skey(skS)) in
+  let m2 = sign(h(nonce_ip(Nx, ipS)), skS) in
+  let m3 = senc(hash_prSet(m2,sprS),kx) in
+	out(c,m3);
+  event acceptsServer(kx);
+	0.
+
+process
+  new ipS:ip;
+  new vidI:id;
+	new skI:skey;
+	new skS:sskey;
+	let pkI = pk(skI) in out(c,pkI);
+	let pkS = spk(skS) in out(c,pkS);
+	( (!entityI(vidI,pkS,ipS)) | (!serverT(pkS,skS,ipS)) )

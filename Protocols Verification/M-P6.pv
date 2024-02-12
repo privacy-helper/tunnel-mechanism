@@ -1,0 +1,80 @@
+(* Symmetric key encryption *)
+
+type key.
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m,k),k) = m.
+
+(* Asymmetric key encryption *)
+
+type skey.
+type pkey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey): bitstring.
+
+reduc forall m: bitstring, sk: skey; adec(aenc(m,pk(sk)),sk) = m.
+
+
+(* Digital signatures *)
+
+type sskey.
+type spkey.
+
+fun spk(sskey): spkey.
+fun sign(bitstring, sskey): bitstring.
+
+reduc forall m: bitstring, ssk: sskey; getmess(sign(m,ssk)) = m.
+reduc forall m: bitstring, ssk: sskey; checksign(sign(m,ssk),spk(ssk)) = m.
+
+type id.
+type tid.
+fun sskey_to_skey(sskey): skey [data,typeConverter].
+fun spkey_to_pkey(spkey): pkey [data,typeConverter].
+fun skey_to_sskey(skey): sskey [data,typeConverter].
+fun pkey_to_spkey(pkey): spkey [data,typeConverter].
+
+free c1:channel.
+free c2:channel.
+free c3:channel.
+
+free message:bitstring [private].
+free tunnelId:tid [private].
+free receiverId:id [private].
+
+query attacker(message).
+query attacker(tunnelId).
+query attacker(receiverId).
+
+let sender(pkR:pkey,kI:key,kPRS:key) =
+  let m0 = aenc(message, pkR) in
+  let m1 = senc((receiverId,m0),kI) in
+  let m4 = senc((tunnelId,m1),kPRS) in
+	out(c1,m4).
+
+
+let prSender(kPRS:key,kPRSI:key) =
+	in(c1,m:bitstring);
+  let (tunnelIdx:tid,m1x:bitstring) = sdec(m,kPRS) in
+  let m3 = senc((tunnelIdx,m1x),kPRSI) in
+	out(c2,m3).
+
+let prRelay(kPRSI:key,kIPRI:key) =
+	in(c2,m:bitstring);
+  let (tunnelIdx:tid,m1x:bitstring) = sdec(m,kPRSI) in
+  let m2 = senc((tunnelIdx,m1x),kIPRI) in
+	out(c3,m2).
+
+let relay(kI:key,kIPRI:key) =
+	in(c3,m:bitstring);
+  let (tunnelIdx:tid,m1x:bitstring) = sdec(m,kIPRI) in
+  let (receiverIdx:id,m0x:bitstring) = sdec(m1x,kI) in
+	0.
+
+process
+  new kI:key;
+  new kPRS:key;
+  new kPRSI:key;
+  new kIPRI:key;
+	new skR:skey;
+  let pkR = pk(skR) in out(c1,pkR);
+	( (!sender(pkR,kI,kPRS)) | (!prSender(kPRS,kPRSI)) | (!prRelay(kPRSI,kIPRI)) | (!relay(kI,kIPRI)) )
